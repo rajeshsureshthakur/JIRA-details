@@ -1,0 +1,231 @@
+// JIRA API Configuration
+const JIRA_CONFIG = {
+    baseUrl: 'https://your-domain.atlassian.net', // Replace with your JIRA domain
+    apiVersion: '3',
+    // You'll need to generate these from JIRA
+    email: 'your-email@domain.com',
+    apiToken: 'your-api-token'
+};
+
+// Authentication headers
+const getHeaders = () => ({
+    'Authorization': `Basic ${btoa(`${JIRA_CONFIG.email}:${JIRA_CONFIG.apiToken}`)}`,
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+});
+
+// API Endpoints
+const JIRA_API = {
+    search: `${JIRA_CONFIG.baseUrl}/rest/api/${JIRA_CONFIG.apiVersion}/search`,
+    issue: (issueId) => `${JIRA_CONFIG.baseUrl}/rest/api/${JIRA_CONFIG.apiVersion}/issue/${issueId}`,
+    transitions: (issueId) => `${JIRA_CONFIG.baseUrl}/rest/api/${JIRA_CONFIG.apiVersion}/issue/${issueId}/transitions`
+};
+
+// Fetch issues created by current user
+async function fetchUserCreatedIssues() {
+    try {
+        showLoading();
+        const jql = 'reporter = currentUser() ORDER BY created DESC';
+        const response = await fetch(`${JIRA_API.search}?jql=${encodeURIComponent(jql)}`, {
+            method: 'GET',
+            headers: getHeaders()
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch user issues');
+        
+        const data = await response.json();
+        mockData.userIssues = data.issues.map(issue => ({
+            id: issue.key,
+            title: issue.fields.summary,
+            status: issue.fields.status.name,
+            priority: issue.fields.priority.name,
+            createdDate: new Date(issue.fields.created).toLocaleDateString()
+        }));
+
+        updateStats();
+        refreshUserIssuesTable();
+        showNotification('User issues fetched successfully');
+    } catch (error) {
+        showNotification(error.message, true);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Fetch issues assigned to current user
+async function fetchAssignedIssues() {
+    try {
+        showLoading();
+        const jql = 'assignee = currentUser() ORDER BY updated DESC';
+        const response = await fetch(`${JIRA_API.search}?jql=${encodeURIComponent(jql)}`, {
+            method: 'GET',
+            headers: getHeaders()
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch assigned issues');
+        
+        const data = await response.json();
+        mockData.assignedIssues = data.issues.map(issue => ({
+            id: issue.key,
+            title: issue.fields.summary,
+            status: issue.fields.status.name,
+            priority: issue.fields.priority.name,
+            dueDate: issue.fields.duedate ? new Date(issue.fields.duedate).toLocaleDateString() : 'No due date'
+        }));
+
+        updateStats();
+        refreshAssignedIssuesTable();
+        showNotification('Assigned issues fetched successfully');
+    } catch (error) {
+        showNotification(error.message, true);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Update issue status
+async function updateIssueStatus(issueId) {
+    try {
+        showLoading();
+        
+        // First, get available transitions
+        const transitionsResponse = await fetch(JIRA_API.transitions(issueId), {
+            method: 'GET',
+            headers: getHeaders()
+        });
+
+        if (!transitionsResponse.ok) throw new Error('Failed to fetch transitions');
+        
+        const transitionsData = await transitionsResponse.json();
+        const transitions = transitionsData.transitions;
+
+        if (transitions.length === 0) {
+            throw new Error('No available transitions');
+        }
+
+        // For simplicity, we'll use the first available transition
+        // In production, you might want to show a dropdown of available transitions
+        const transitionId = transitions[0].id;
+
+        // Perform the transition
+        const updateResponse = await fetch(JIRA_API.transitions(issueId), {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({
+                transition: {
+                    id: transitionId
+                }
+            })
+        });
+
+        if (!updateResponse.ok) throw new Error('Failed to update status');
+
+        // Refresh the data
+        await Promise.all([fetchUserCreatedIssues(), fetchAssignedIssues()]);
+        showNotification(`Status updated for issue ${issueId}`);
+    } catch (error) {
+        showNotification(error.message, true);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Update issue priority
+async function updatePriority(issueId) {
+    try {
+        showLoading();
+        
+        // First, get current issue details
+        const issueResponse = await fetch(JIRA_API.issue(issueId), {
+            method: 'GET',
+            headers: getHeaders()
+        });
+
+        if (!issueResponse.ok) throw new Error('Failed to fetch issue details');
+        
+        const issueData = await issueResponse.json();
+        const currentPriority = issueData.fields.priority.id;
+
+        // In a real implementation, you would fetch available priorities from JIRA
+        // For now, we'll use common priority IDs
+        const priorities = ['1', '2', '3']; // High, Medium, Low
+        const currentIndex = priorities.indexOf(currentPriority);
+        const nextPriority = priorities[(currentIndex + 1) % priorities.length];
+
+        // Update the priority
+        const updateResponse = await fetch(JIRA_API.issue(issueId), {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify({
+                fields: {
+                    priority: {
+                        id: nextPriority
+                    }
+                }
+            })
+        });
+
+        if (!updateResponse.ok) throw new Error('Failed to update priority');
+
+        // Refresh the data
+        await Promise.all([fetchUserCreatedIssues(), fetchAssignedIssues()]);
+        showNotification(`Priority updated for issue ${issueId}`);
+    } catch (error) {
+        showNotification(error.message, true);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Update dashboard statistics from JIRA data
+async function updateStats() {
+    try {
+        const queries = {
+            total: 'project in projectsWhereUserHasPermission()',
+            open: 'status = "Open"',
+            critical: 'priority = Highest',
+            assigned: 'assignee = currentUser()'
+        };
+
+        const stats = {};
+        
+        for (const [key, jql] of Object.entries(queries)) {
+            const response = await fetch(`${JIRA_API.search}?jql=${encodeURIComponent(jql)}`, {
+                method: 'GET',
+                headers: getHeaders()
+            });
+
+            if (!response.ok) throw new Error(`Failed to fetch ${key} statistics`);
+            
+            const data = await response.json();
+            stats[key] = data.total;
+        }
+
+        // Update the UI
+        document.getElementById('totalIssues').textContent = stats.total;
+        document.getElementById('openIssues').textContent = stats.open;
+        document.getElementById('criticalIssues').textContent = stats.critical;
+        document.getElementById('assignedIssues').textContent = stats.assigned;
+    } catch (error) {
+        showNotification('Failed to update statistics', true);
+    }
+}
+
+// Initialize dashboard with live JIRA data
+async function initializeDashboard() {
+    try {
+        showLoading();
+        await Promise.all([
+            fetchUserCreatedIssues(),
+            fetchAssignedIssues()
+        ]);
+        showNotification('Dashboard initialized successfully');
+    } catch (error) {
+        showNotification('Failed to initialize dashboard', true);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Keep the existing UI helper functions (showLoading, hideLoading, showNotification, etc.)
+// but replace the mock data functions with these real API calls
