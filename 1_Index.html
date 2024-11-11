@@ -201,7 +201,320 @@
             }
         }
 
-        // Add other necessary functions for your dashboard
+        // Dashboard state
+const dashboardState = {
+    userIssues: [],
+    assignedIssues: [],
+    statistics: {}
+};
+
+// Update Dashboard
+async function updateDashboard(userIssues, assignedIssues) {
+    dashboardState.userIssues = userIssues.issues || [];
+    dashboardState.assignedIssues = assignedIssues.issues || [];
+    
+    updateStatistics();
+    updateTables();
+    updateLastUpdated();
+}
+
+// Update Statistics
+function updateStatistics() {
+    const stats = calculateStatistics();
+    
+    // Update statistics cards HTML
+    const statsContainer = document.querySelector('.grid');
+    statsContainer.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h3 class="text-gray-500 text-sm font-medium">Total Issues</h3>
+            <p class="mt-2 text-3xl font-bold text-gray-900">${stats.total}</p>
+            <div class="mt-1">
+                <span class="text-green-500 text-sm font-medium">↑ ${stats.totalGrowth}%</span>
+                <span class="text-gray-400 text-sm">vs last week</span>
+            </div>
+        </div>
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h3 class="text-gray-500 text-sm font-medium">Open Issues</h3>
+            <p class="mt-2 text-3xl font-bold text-gray-900">${stats.open}</p>
+            <div class="mt-1">
+                <span class="text-red-500 text-sm font-medium">↑ ${stats.openGrowth}%</span>
+                <span class="text-gray-400 text-sm">vs last week</span>
+            </div>
+        </div>
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h3 class="text-gray-500 text-sm font-medium">Critical Issues</h3>
+            <p class="mt-2 text-3xl font-bold text-gray-900">${stats.critical}</p>
+            <div class="mt-1">
+                <span class="text-green-500 text-sm font-medium">↓ ${stats.criticalGrowth}%</span>
+                <span class="text-gray-400 text-sm">vs last week</span>
+            </div>
+        </div>
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h3 class="text-gray-500 text-sm font-medium">My Assigned Issues</h3>
+            <p class="mt-2 text-3xl font-bold text-gray-900">${stats.assigned}</p>
+            <div class="mt-1">
+                <span class="text-yellow-500 text-sm font-medium">↑ ${stats.assignedGrowth}%</span>
+                <span class="text-gray-400 text-sm">vs last week</span>
+            </div>
+        </div>
+    `;
+}
+
+// Calculate Statistics
+function calculateStatistics() {
+    return {
+        total: dashboardState.userIssues.length + dashboardState.assignedIssues.length,
+        open: dashboardState.userIssues.filter(issue => 
+            issue.fields.status.name !== 'Done' && 
+            issue.fields.status.name !== 'Closed'
+        ).length,
+        critical: dashboardState.userIssues.filter(issue => 
+            issue.fields.priority.name === 'Highest' || 
+            issue.fields.priority.name === 'High'
+        ).length,
+        assigned: dashboardState.assignedIssues.length,
+        totalGrowth: 12,    // You can calculate real growth if you store historical data
+        openGrowth: 5,
+        criticalGrowth: -8,
+        assignedGrowth: 3
+    };
+}
+
+// Update Tables
+function updateTables() {
+    updateUserIssuesTable();
+    updateAssignedIssuesTable();
+}
+
+// Update User Issues Table
+function updateUserIssuesTable() {
+    const tbody = document.getElementById('userIssuesTable');
+    if (!tbody) return;
+
+    tbody.innerHTML = dashboardState.userIssues.map(issue => `
+        <tr>
+            <td class="py-2 px-4 border">${issue.key}</td>
+            <td class="py-2 px-4 border">${issue.fields.summary}</td>
+            <td class="py-2 px-4 border">
+                <span class="badge ${getStatusColor(issue.fields.status.name)}">
+                    ${issue.fields.status.name}
+                </span>
+            </td>
+            <td class="py-2 px-4 border">
+                <span class="badge ${getPriorityColor(issue.fields.priority.name)}">
+                    ${issue.fields.priority.name}
+                </span>
+            </td>
+            <td class="py-2 px-4 border">${formatDate(issue.fields.created)}</td>
+            <td class="py-2 px-4 border">${formatDate(issue.fields.duedate)}</td>
+        </tr>
+    `).join('');
+}
+
+// Update Assigned Issues Table
+function updateAssignedIssuesTable() {
+    const tbody = document.getElementById('assignedIssuesTable');
+    if (!tbody) return;
+
+    tbody.innerHTML = dashboardState.assignedIssues.map(issue => `
+        <tr>
+            <td class="py-2 px-4 border">${issue.key}</td>
+            <td class="py-2 px-4 border">${issue.fields.summary}</td>
+            <td class="py-2 px-4 border">
+                <span class="badge ${getStatusColor(issue.fields.status.name)}">
+                    ${issue.fields.status.name}
+                </span>
+            </td>
+            <td class="py-2 px-4 border">
+                <span class="badge ${getPriorityColor(issue.fields.priority.name)}">
+                    ${issue.fields.priority.name}
+                </span>
+            </td>
+            <td class="py-2 px-4 border">${formatDate(issue.fields.created)}</td>
+            <td class="py-2 px-4 border">${formatDate(issue.fields.duedate)}</td>
+        </tr>
+    `).join('');
+}
+
+// Helper Functions
+function getStatusColor(status) {
+    const colors = {
+        'To Do': 'bg-gray-100 text-gray-800',
+        'In Progress': 'bg-blue-100 text-blue-800',
+        'Done': 'bg-green-100 text-green-800',
+        'Resolved': 'bg-green-100 text-green-800',
+        'Closed': 'bg-gray-100 text-gray-800'
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+}
+
+function getPriorityColor(priority) {
+    const colors = {
+        'Highest': 'bg-red-100 text-red-800',
+        'High': 'bg-orange-100 text-orange-800',
+        'Medium': 'bg-yellow-100 text-yellow-800',
+        'Low': 'bg-green-100 text-green-800',
+        'Lowest': 'bg-blue-100 text-blue-800'
+    };
+    return colors[priority] || 'bg-gray-100 text-gray-800';
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString();
+}
+
+function updateLastUpdated() {
+    const element = document.getElementById('lastUpdated');
+    element.textContent = `Last Updated: ${new Date().toLocaleString()}`;
+}
+
+// Modal Functions
+function showModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'block';
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Event Listeners
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize buttons
+    document.getElementById('showUserIssuesBtn')?.addEventListener('click', () => {
+        showModal('userIssuesModal');
+        updateUserIssuesTable();
+    });
+
+    document.getElementById('showAssignedIssuesBtn')?.addEventListener('click', () => {
+        showModal('assignedIssuesModal');
+        updateAssignedIssuesTable();
+    });
+
+    // Initialize close buttons
+    document.querySelectorAll('.close').forEach(button => {
+        button.addEventListener('click', () => {
+            closeModal(button.getAttribute('data-modal'));
+        });
+    });
+
+    // Click outside modal to close
+    window.addEventListener('click', function(event) {
+        if (event.target.classList.contains('modal')) {
+            event.target.style.display = 'none';
+        }
+    });
+
+    // Initialize filters
+    document.getElementById('userIssuesStatusFilter')?.addEventListener('change', updateUserIssuesTable);
+    document.getElementById('userIssuesSearch')?.addEventListener('input', updateUserIssuesTable);
+    document.getElementById('assignedIssuesStatusFilter')?.addEventListener('change', updateAssignedIssuesTable);
+    document.getElementById('assignedIssuesPriorityFilter')?.addEventListener('change', updateAssignedIssuesTable);
+
+    // Load initial data
+    refreshData();
+});
+
+// Error Handler
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+    console.error('Error: ', msg, url, lineNo, columnNo, error);
+    showNotification('An error occurred. Check console for details.', true);
+    return false;
+};
     </script>
+
+    <!-- User Issues Modal -->
+    <div id="userIssuesModal" class="modal">
+        <div class="modal-content">
+            <span class="close" data-modal="userIssuesModal">&times;</span>
+            <h2 class="text-2xl font-bold mb-4">My Issues</h2>
+            
+            <div class="mb-4 flex space-x-4">
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Filter by Status:</label>
+                    <select id="userIssuesStatusFilter" class="w-full p-2 border rounded-lg">
+                        <option value="all">All Status</option>
+                        <option value="To Do">To Do</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Done">Done</option>
+                    </select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Search:</label>
+                    <input type="text" id="userIssuesSearch" 
+                           placeholder="Search issues..." 
+                           class="w-full p-2 border rounded-lg">
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="py-2 px-4 border">Key</th>
+                            <th class="py-2 px-4 border">Summary</th>
+                            <th class="py-2 px-4 border">Status</th>
+                            <th class="py-2 px-4 border">Priority</th>
+                            <th class="py-2 px-4 border">Created</th>
+                            <th class="py-2 px-4 border">Due Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userIssuesTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assigned Issues Modal -->
+    <div id="assignedIssuesModal" class="modal">
+        <div class="modal-content">
+            <span class="close" data-modal="assignedIssuesModal">&times;</span>
+            <h2 class="text-2xl font-bold mb-4">Assigned Issues</h2>
+            
+            <div class="mb-4 flex space-x-4">
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Filter by Status:</label>
+                    <select id="assignedIssuesStatusFilter" class="w-full p-2 border rounded-lg">
+                        <option value="all">All Status</option>
+                        <option value="To Do">To Do</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Done">Done</option>
+                    </select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Filter by Priority:</label>
+                    <select id="assignedIssuesPriorityFilter" class="w-full p-2 border rounded-lg">
+                        <option value="all">All Priorities</option>
+                        <option value="Highest">Highest</option>
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="py-2 px-4 border">Key</th>
+                            <th class="py-2 px-4 border">Summary</th>
+                            <th class="py-2 px-4 border">Status</th>
+                            <th class="py-2 px-4 border">Priority</th>
+                            <th class="py-2 px-4 border">Created</th>
+                            <th class="py-2 px-4 border">Due Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assignedIssuesTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
