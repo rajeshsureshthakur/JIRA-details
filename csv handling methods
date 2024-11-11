@@ -1,0 +1,86 @@
+def save_issues_to_csv(self, data):
+        """Save JIRA issues to CSV files"""
+        if 'issues' not in data:
+            return
+
+        try:
+            os.makedirs('data', exist_ok=True)
+            
+            # Process issues
+            user_issues = []
+            assigned_issues = []
+
+            for issue in data['issues']:
+                issue_data = {
+                    'Key': issue['key'],
+                    'Summary': issue['fields']['summary'],
+                    'Status': issue['fields']['status']['name'],
+                    'Priority': issue['fields']['priority']['name'],
+                    'Created': issue['fields']['created'],
+                    'DueDate': issue['fields'].get('duedate', ''),
+                    'Reporter': issue['fields']['reporter']['displayName'],
+                    'Assignee': issue['fields'].get('assignee', {}).get('displayName', '')
+                }
+
+                if issue['fields']['reporter']['emailAddress'] == JIRA_CONFIG.get('email'):
+                    user_issues.append(issue_data)
+                if issue['fields'].get('assignee', {}).get('emailAddress') == JIRA_CONFIG.get('email'):
+                    assigned_issues.append(issue_data)
+
+            # Write to CSV files
+            self.write_csv('data/user_issues.csv', user_issues)
+            self.write_csv('data/assigned_issues.csv', assigned_issues)
+            
+            # Update metadata
+            metadata = [{
+                'LastUpdated': datetime.now().isoformat(),
+                'RecordCount': str(len(user_issues) + len(assigned_issues))
+            }]
+            self.write_csv('data/metadata.csv', metadata)
+
+            logging.info(f"Saved {len(user_issues)} user issues and {len(assigned_issues)} assigned issues to CSV")
+
+        except Exception as e:
+            logging.error(f"Error saving to CSV: {str(e)}\n{traceback.format_exc()}")
+
+    def write_csv(self, filename, data):
+        """Write data to CSV file"""
+        if not data:
+            return
+
+        try:
+            logging.info(f"Writing CSV file: {filename}")
+            
+            import csv
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                if data:
+                    # Get headers from first row
+                    headers = list(data[0].keys())
+                    
+                    # Create CSV writer
+                    writer = csv.DictWriter(f, fieldnames=headers, quoting=csv.QUOTE_ALL)
+                    
+                    # Write headers and data
+                    writer.writeheader()
+                    writer.writerows(data)
+                    
+            logging.info(f"Successfully wrote {len(data)} rows to {filename}")
+
+        except Exception as e:
+            logging.error(f"Error writing CSV {filename}: {str(e)}\n{traceback.format_exc()}")
+
+    def escape_csv_field(self, field):
+        """Escape CSV field values"""
+        if field is None:
+            return '""'
+        return f'"{str(field).replace("""", """""")}"'
+
+
+
+
+
+
+              import os
+import csv
+from datetime import datetime
+import traceback
