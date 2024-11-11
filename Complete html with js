@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIRA Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 1000px;
+            border-radius: 8px;
+            position: relative;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 10px;
+            font-size: 28px;
+            cursor: pointer;
+        }
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 4px;
+            color: white;
+            z-index: 3000;
+            display: none;
+        }
+        .success { background-color: #10B981; }
+        .error { background-color: #EF4444; }
+        .badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Loading Spinner -->
+    <div id="loading" class="loading">
+        <div class="bg-white p-4 rounded-lg shadow-lg flex items-center space-x-3">
+            <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+            <span>Loading...</span>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification"></div>
+
+    <div class="container mx-auto px-4 py-8">
+        <!-- Main Header -->
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-indigo-600 mb-2">JIRA Dashboard</h1>
+            <p class="text-gray-600 mb-2">Track and manage your JIRA issues efficiently</p>
+            <p id="lastUpdated" class="text-sm text-gray-500">Last Updated: Loading...</p>
+            <button onclick="refreshData()" class="mt-2 bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">
+                Refresh Data
+            </button>
+        </div>
+
+        <!-- Main Dashboard Section -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-blue-100 p-4 rounded-lg">
+                    <h3 class="text-blue-800 font-semibold">Total Issues</h3>
+                    <p id="totalIssues" class="text-2xl font-bold">-</p>
+                </div>
+                <div class="bg-green-100 p-4 rounded-lg">
+                    <h3 class="text-green-800 font-semibold">Open Issues</h3>
+                    <p id="openIssues" class="text-2xl font-bold">-</p>
+                </div>
+                <div class="bg-yellow-100 p-4 rounded-lg">
+                    <h3 class="text-yellow-800 font-semibold">Critical Issues</h3>
+                    <p id="criticalIssues" class="text-2xl font-bold">-</p>
+                </div>
+                <div class="bg-purple-100 p-4 rounded-lg">
+                    <h3 class="text-purple-800 font-semibold">My Assigned Issues</h3>
+                    <p id="assignedIssues" class="text-2xl font-bold">-</p>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="space-y-4">
+                <button id="showUserIssuesBtn" class="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center space-x-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span>View Issues Raised by Users</span>
+                </button>
+
+                <button id="showAssignedIssuesBtn" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition duration-300 flex items-center justify-center space-x-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <span>View Assigned Issues</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Issues Modal -->
+    <div id="userIssuesModal" class="modal">
+        <div class="modal-content">
+            <span class="close" data-modal="userIssuesModal">&times;</span>
+            <h2 class="text-2xl font-bold mb-4">Issues Raised by Users</h2>
+            
+            <div class="mb-4 flex space-x-4">
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Filter by Status:</label>
+                    <select id="userIssuesStatusFilter" class="w-full p-2 border rounded-lg">
+                        <option value="all">All Status</option>
+                    </select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Search by Title:</label>
+                    <input type="text" id="userIssuesSearch" placeholder="Search issues..." 
+                           class="w-full p-2 border rounded-lg">
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="py-2 px-4 border">Issue Key</th>
+                            <th class="py-2 px-4 border">Summary</th>
+                            <th class="py-2 px-4 border">Status</th>
+                            <th class="py-2 px-4 border">Priority</th>
+                            <th class="py-2 px-4 border">Created Date</th>
+                            <th class="py-2 px-4 border">Due Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userIssuesTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assigned Issues Modal -->
+    <div id="assignedIssuesModal" class="modal">
+        <div class="modal-content">
+            <span class="close" data-modal="assignedIssuesModal">&times;</span>
+            <h2 class="text-2xl font-bold mb-4">Issues Assigned to You</h2>
+            
+            <div class="mb-4 flex space-x-4">
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Filter by Status:</label>
+                    <select id="assignedIssuesStatusFilter" class="w-full p-2 border rounded-lg">
+                        <option value="all">All Status</option>
+                    </select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-gray-700 mb-2">Filter by Priority:</label>
+                    <select id="assignedIssuesPriorityFilter" class="w-full p-2 border rounded-lg">
+                        <option value="all">All Priorities</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="py-2 px-4 border">Issue Key</th>
+                            <th class="py-2 px-4 border">Summary</th>
+                            <th class="py-2 px-4 border">Status</th>
+                            <th class="py-2 px-4 border">Priority</th>
+                            <th class="py-2 px-4 border">Created Date</th>
+                            <th class="py-2 px-4 border">Due Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assignedIssuesTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data Store
+        let dashboardData = {
+            userIssues: [],
+            assignedIssues: [],
+            statuses: new Set(),
+            priorities: new Set(),
+            metadata: null
+        };
+
+        // UI Helper Functions
+        function showLoading() {
+            document.getElementById('loading').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showNotification(message, isError = false) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${isError ? 'error' : 'success'}`;
+            notification.style.display = 'block';
+
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+
+        // CSV Reading Functions
+        async function readCSV(filename) {
+            try {
+                const response = await fetch(filename);
+                const text = await response.text();
+                return parseCSV(text);
+            } catch (error) {
+                console.error(`Error reading ${filename}:`, error);
+                return [];
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.split('\n');
+            if (lines.length === 0) return [];
+
+            const headers = lines[0].split(',').map(header => 
+                header.trim().replace(/^"(.*)"$/, '$1'));
+
+            return lines.slice(1)
+                .filter(line => line.trim())
+                .map(line => {
+                    const values = line.split(',').map(value => 
+                        value.trim().replace(/^"(.*)"$/, '$1'));
+                    const row = {};
+                    headers.forEach((header, i) => {
+                        row[header] = values[i] || '';
+                    });
+                    return row;
+                });
+        }
+
+        // Data Loading Functions
+        async function loadData() {
+            try {
+                showLoading();
+
+                // Read all CSV files
+                const [userIssues, assignedIssues, metadata] = await Promise.all([
+                    readCSV('user_issues.csv'),
+                    readCSV('assigned_issues.csv'),
+                    readCSV('metadata.csv')
+                ]);
+
+                // Update dashboard data
+                dashboardData.userIssues = userIssues;
+                dashboardData.assignedIssues = assignedIssues;
+                dashboardData.metadata = metadata[0];
+
+                // Extract unique statuses and priorities
+                const allIssues = [...userIssues, ...assignedIssues];
+                dashboardData.statuses = new Set(allIssues.map(issue => issue.Status));
+                dashboardData.priorities = new Set(allIssues.map(issue => issue.Priority));
+
+                // Update UI
+                updateDashboardStats();
+                updateFilterDropdowns();
+                updateLastUpdated();
+                showNotification('Dashboard data loaded successfully');
+            } catch (error) {
+                console.error('Error loading data:', error);
+                showNotification('Error loading dashboard data', true);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function updateLastUpdated() {
+            const element = document.getElementById('lastUpdated');
+            if (dashboardData.metadata?.LastUpdated) {
+                const date = new Date(dashboardData.metadata.LastUpdated);
+                element.textContent = `Last Updated: ${date.toLocaleString()}`;
+            } else {
+                element.textContent = 'Last Updated: Unknown';
+            }
+        }
+
+        function updateDashboardStats() {
+            const stats = {
+                total: dashboardData.userIssues.length + dashboardData.assignedIssues.length,
+                open: [...dashboardData.userIssues, ...dashboardData.assignedIssues]
+                    .filter(issue => issue.Status !== 'Done' && issue.Status !== 'Closed').length,
+                critical: [...dashboardData.userIssues, ...dashboardData.assignedIssues]
+                    .filter(issue => issue.Priority === 'Highest' || issue.Priority === 'High').length,
+                assigned: dashboardData.assignedIssues.length
+            };
+
+            document.getElementById('totalIssues').textContent = stats.total;
+            document.getElementById('openIssues').textContent = stats.open;
+            document.getElementById('criticalIssues').textContent = stats.critical;
+            document.getElementById('assignedIssues').textContent = stats.assigned;
+        }
+
+        function updateFilterDropdowns() {
+            // Update status dropdowns
+            const statusOptions = ['all', ...dashboardData.statuses];
+            ['userIssuesStatusFilter', 'assignedIssuesStatusFilter'].forEach(id => {
+                const select = document.getElementById(id);
+                select.innerHTML = statusOptions.map(status =>
+`<option value="${status}">${status === 'all' ? 'All Status' : status}</option>`
+                ).join('');
+            });
+
+            // Update priority dropdown
+            const prioritySelect = document.getElementById('assignedIssuesPriorityFilter');
+            const priorityOptions = ['all', ...dashboardData.priorities];
+            prioritySelect.innerHTML = priorityOptions.map(priority =>
+                `<option value="${priority}">${priority === 'all' ? 'All Priorities' : priority}</option>`
+            ).join('');
+        }
+
+        // Status and Priority Styling
+        function getStatusColor(status) {
+            const colors = {
+                'To Do': 'bg-gray-100 text-gray-800',
+                'In Progress': 'bg-blue-100 text-blue-800',
+                'Done': 'bg-green-100 text-green-800',
+                'Resolved': 'bg-green-100 text-green-800',
+                'Closed': 'bg-gray-100 text-gray-800',
+                'Blocked': 'bg-red-100 text-red-800'
+            };
+            return colors[status] || 'bg-gray-100 text-gray-800';
+        }
+
+        function getPriorityColor(priority) {
+            const colors = {
+                'Highest': 'bg-red-100 text-red-800',
+                'High': 'bg-orange-100 text-orange-800',
+                'Medium': 'bg-yellow-100 text-yellow-800',
+                'Low': 'bg-green-100 text-green-800',
+                'Lowest': 'bg-blue-100 text-blue-800'
+            };
+            return colors[priority] || 'bg-gray-100 text-gray-800';
+        }
+
+        // Format Dates
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleDateString();
+            } catch (error) {
+                return dateString;
+            }
+        }
+
+        // Table Update Functions
+        function updateUserIssuesTable() {
+            const statusFilter = document.getElementById('userIssuesStatusFilter').value;
+            const searchTerm = document.getElementById('userIssuesSearch').value.toLowerCase();
+
+            const filteredIssues = dashboardData.userIssues.filter(issue => {
+                const matchesStatus = statusFilter === 'all' || issue.Status === statusFilter;
+                const matchesSearch = issue.Summary.toLowerCase().includes(searchTerm) ||
+                                    issue.Key.toLowerCase().includes(searchTerm);
+                return matchesStatus && matchesSearch;
+            });
+
+            const tbody = document.getElementById('userIssuesTable');
+            tbody.innerHTML = filteredIssues.map(issue => `
+                <tr>
+                    <td class="py-2 px-4 border">${issue.Key}</td>
+                    <td class="py-2 px-4 border">${issue.Summary}</td>
+                    <td class="py-2 px-4 border">
+                        <span class="badge ${getStatusColor(issue.Status)}">
+                            ${issue.Status}
+                        </span>
+                    </td>
+                    <td class="py-2 px-4 border">
+                        <span class="badge ${getPriorityColor(issue.Priority)}">
+                            ${issue.Priority}
+                        </span>
+                    </td>
+                    <td class="py-2 px-4 border">${formatDate(issue.Created)}</td>
+                    <td class="py-2 px-4 border">${formatDate(issue.DueDate)}</td>
+                </tr>
+            `).join('');
+        }
+
+        function updateAssignedIssuesTable() {
+            const statusFilter = document.getElementById('assignedIssuesStatusFilter').value;
+            const priorityFilter = document.getElementById('assignedIssuesPriorityFilter').value;
+
+            const filteredIssues = dashboardData.assignedIssues.filter(issue => {
+                const matchesStatus = statusFilter === 'all' || issue.Status === statusFilter;
+                const matchesPriority = priorityFilter === 'all' || issue.Priority === priorityFilter;
+                return matchesStatus && matchesPriority;
+            });
+
+            const tbody = document.getElementById('assignedIssuesTable');
+            tbody.innerHTML = filteredIssues.map(issue => `
+                <tr>
+                    <td class="py-2 px-4 border">${issue.Key}</td>
+                    <td class="py-2 px-4 border">${issue.Summary}</td>
+                    <td class="py-2 px-4 border">
+                        <span class="badge ${getStatusColor(issue.Status)}">
+                            ${issue.Status}
+                        </span>
+                    </td>
+                    <td class="py-2 px-4 border">
+                        <span class="badge ${getPriorityColor(issue.Priority)}">
+                            ${issue.Priority}
+                        </span>
+                    </td>
+                    <td class="py-2 px-4 border">${formatDate(issue.Created)}</td>
+                    <td class="py-2 px-4 border">${formatDate(issue.DueDate)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Modal Functions
+        function showModal(modalId) {
+            document.getElementById(modalId).style.display = 'block';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // Refresh Data
+        async function refreshData() {
+            // This would typically trigger the Java program
+            showNotification('Please run the Java program to refresh data');
+            // After running Java program:
+            await loadData();
+        }
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize buttons
+            document.getElementById('showUserIssuesBtn').addEventListener('click', () => {
+                showModal('userIssuesModal');
+                updateUserIssuesTable();
+            });
+
+            document.getElementById('showAssignedIssuesBtn').addEventListener('click', () => {
+                showModal('assignedIssuesModal');
+                updateAssignedIssuesTable();
+            });
+
+            // Initialize close buttons
+            document.querySelectorAll('.close').forEach(button => {
+                button.addEventListener('click', () => {
+                    closeModal(button.getAttribute('data-modal'));
+                });
+            });
+
+            // Initialize filters
+            document.getElementById('userIssuesStatusFilter').addEventListener('change', updateUserIssuesTable);
+            document.getElementById('userIssuesSearch').addEventListener('input', updateUserIssuesTable);
+            document.getElementById('assignedIssuesStatusFilter').addEventListener('change', updateAssignedIssuesTable);
+            document.getElementById('assignedIssuesPriorityFilter').addEventListener('change', updateAssignedIssuesTable);
+
+            // Click outside modal to close
+            window.addEventListener('click', function(event) {
+                if (event.target.classList.contains('modal')) {
+                    event.target.style.display = 'none';
+                }
+            });
+
+            // Load initial data
+            loadData();
+        });
+    </script>
+</body>
+</html>
