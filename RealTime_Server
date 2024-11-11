@@ -1,0 +1,145 @@
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
+import json
+import requests
+import base64
+import os
+from datetime import datetime
+
+# JIRA Configuration
+JIRA_CONFIG = {
+    'base_url': 'https://your-domain.atlassian.net',
+    'email': 'your-email@domain.com',
+    'api_token': 'your-api-token'
+}
+
+class JiraProxyHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.jira_auth = base64.b64encode(
+            f"{JIRA_CONFIG['email']}:{JIRA_CONFIG['api_token']}".encode()
+        ).decode()
+
+    def do_OPTIONS(self):
+        self.send_cors_headers()
+        self.send_response(200)
+        self.end_headers()
+
+    def do_GET(self):
+        # Serve static files (HTML, CSS, JS)
+        if not self.path.startswith('/api/'):
+            return super().do_GET()
+        
+        # Handle API requests
+        try:
+            parsed_path = urlparse(self.path)
+            if parsed_path.path.startswith('/api/jira/'):
+                self.handle_jira_request(parsed_path)
+            else:
+                self.send_error(404, "API endpoint not found")
+        except Exception as e:
+            self.send_error(500, str(e))
+
+    def handle_jira_request(self, parsed_path):
+        try:
+            # Remove /api/jira prefix
+            jira_path = parsed_path.path.replace('/api/jira/', '')
+            query_params = parse_qs(parsed_path.query)
+
+            # Make request to JIRA
+            headers = {
+                'Authorization': f'Basic {self.jira_auth}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+
+            # Construct JIRA URL
+            jira_url = f"{JIRA_CONFIG['base_url']}/rest/api/3/{jira_path}"
+            if query_params:
+                # Convert query params to JIRA format
+                formatted_params = {k: v[0] for k, v in query_params.items()}
+                response = requests.get(jira_url, headers=headers, params=formatted_params)
+            else:
+                response = requests.get(jira_url, headers=headers)
+
+            # Send response back to client
+            self.send_cors_headers()
+            self.send_response(response.status_code)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(response.content)
+
+            # Save response to CSV if it's an issue query
+            if jira_path == 'search':
+                self.save_issues_to_csv(response.json())
+
+        except Exception as e:
+            self.send_error(500, str(e))
+
+    def save_issues_to_csv(self, data):
+        if 'issues' not in data:
+            return
+
+        # Ensure data directory exists
+        os.makedirs('data', exist_ok=True)
+
+        # Process issues and save to appropriate CSV files
+        user_issues = []
+        assigned_issues = []
+
+        for issue in data['issues']:
+            issue_data = {
+                'Key': issue['key'],
+                'Summary': issue['fields']['summary'],
+                'Status': issue['fields']['status']['name'],
+                'Priority': issue['fields']['priority']['name'],
+                'Created': issue['fields']['created'],
+                'DueDate': issue['fields'].get('duedate', ''),
+                'Reporter': issue['fields']['reporter']['displayName'],
+                'Assignee': issue['fields'].get('assignee', {}).get('displayName', '')
+            }
+
+            if issue['fields']['reporter']['emailAddress'] == JIRA_CONFIG['email']:
+                user_issues.append(issue_data)
+            if issue['fields'].get('assignee', {}).get('emailAddress') == JIRA_CONFIG['email']:
+                assigned_issues.append(issue_data)
+
+        # Save to CSV files
+        self.write_csv('data/user_issues.csv', user_issues)
+        self.write_csv('data/assigned_issues.csv', assigned_issues)
+        
+        # Update metadata
+        metadata = [{
+            'LastUpdated': datetime.now().isoformat(),
+            'RecordCount': str(len(user_issues) + len(assigned_issues))
+        }]
+        self.write_csv('data/metadata.csv', metadata)
+
+    def write_csv(self, filename, data):
+        if not data:
+            return
+
+        with open(filename, 'w', encoding='utf-8') as f:
+            # Write headers
+            headers = data[0].keys()
+            f.write(','.join(f'"{h}"' for h in headers) + '\n')
+            
+            # Write data
+            for row in data:
+                f.write(','.join(f'"{str(row[h]).replace("""", """""")}"' for h in headers) + '\n')
+
+    def send_cors_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+
+def run_server(port=8000):
+    server_address = ('', port)
+    httpd = HTTPServer(server_address, JiraProxyHandler)
+    print(f'Starting server on port {port}...')
+    print(f'Access the dashboard at http://localhost:{port}')
+    httpd.serve_forever()
+
+if __name__ == '__main__':
+    run_server()
