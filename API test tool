@@ -1,0 +1,175 @@
+import ssl
+import requests
+import logging
+import os
+import json
+from urllib.parse import urlparse
+import base64
+
+class JiraAPITester:
+    def __init__(self, url, email, api_token, cert_path):
+        self.base_url = url if url.startswith('https://') else f'https://{url}'
+        self.email = email
+        self.api_token = api_token
+        self.cert_path = os.path.abspath(cert_path)
+        
+        # Set up logging
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('jira_api_test.log'),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+
+        # Create session with certificate
+        self.session = requests.Session()
+        self.session.verify = self.cert_path
+        self.session.headers.update({
+            'Authorization': f'Basic {self._get_auth_token()}',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        })
+
+    def _get_auth_token(self):
+        return base64.b64encode(
+            f"{self.email}:{self.api_token}".encode()
+        ).decode()
+
+    def test_certificate(self):
+        """Test basic HTTPS connection"""
+        print("\n1. Testing SSL Certificate Connection:")
+        try:
+            response = requests.get(self.base_url, verify=self.cert_path)
+            print(f"✅ Basic HTTPS connection successful (Status: {response.status_code})")
+            print(f"Certificate being used: {self.cert_path}")
+            return True
+        except requests.exceptions.SSLError as e:
+            print(f"❌ SSL Error: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"❌ Connection Error: {str(e)}")
+            return False
+
+    def test_authentication(self):
+        """Test JIRA authentication"""
+        print("\n2. Testing JIRA Authentication:")
+        try:
+            response = self.session.get(f"{self.base_url}/rest/api/3/myself")
+            if response.ok:
+                user_data = response.json()
+                print(f"✅ Authentication successful")
+                print(f"Logged in as: {user_data.get('displayName', 'Unknown')}")
+                print(f"Email: {user_data.get('emailAddress', 'Unknown')}")
+                return True
+            else:
+                print(f"❌ Authentication failed (Status: {response.status_code})")
+                print(f"Response: {response.text}")
+                return False
+        except Exception as e:
+            print(f"❌ Authentication Error: {str(e)}")
+            return False
+
+    def test_api_endpoints(self):
+        """Test various JIRA API endpoints"""
+        print("\n3. Testing JIRA API Endpoints:")
+        
+        endpoints = [
+            ('/rest/api/3/myself', 'GET', None, 'User Info'),
+            ('/rest/api/3/issue/createmeta', 'GET', None, 'Create Meta'),
+            ('/rest/api/3/search?jql=assignee=currentUser()', 'GET', None, 'Search Issues'),
+            ('/rest/api/3/project', 'GET', None, 'Projects'),
+            ('/rest/api/3/status', 'GET', None, 'Statuses')
+        ]
+
+        for endpoint, method, data, description in endpoints:
+            print(f"\nTesting {description} endpoint:")
+            try:
+                url = f"{self.base_url}{endpoint}"
+                print(f"URL: {url}")
+                
+                response = self.session.request(
+                    method=method,
+                    url=url,
+                    json=data
+                )
+                
+                print(f"Status Code: {response.status_code}")
+                if response.ok:
+                    print("✅ Success")
+                    # Print sample of response data
+                    try:
+                        resp_data = response.json()
+                        if isinstance(resp_data, list):
+                            print(f"Received {len(resp_data)} items")
+                        elif isinstance(resp_data, dict):
+                            print(f"Received keys: {list(resp_data.keys())}")
+                    except:
+                        print("Response not JSON")
+                else:
+                    print(f"❌ Failed: {response.text}")
+
+                # Print headers for debugging
+                print("\nResponse Headers:")
+                for key, value in response.headers.items():
+                    print(f"{key}: {value}")
+
+            except requests.exceptions.SSLError as e:
+                print(f"❌ SSL Error: {str(e)}")
+            except Exception as e:
+                print(f"❌ Error: {str(e)}")
+
+    def test_proxy_settings(self):
+        """Test and display proxy settings"""
+        print("\n4. Proxy Settings:")
+        proxies = {
+            'http': os.environ.get('HTTP_PROXY'),
+            'https': os.environ.get('HTTPS_PROXY')
+        }
+        print(f"Current Proxy Settings:")
+        for proxy_type, proxy_url in proxies.items():
+            print(f"{proxy_type.upper()}: {proxy_url or 'Not set'}")
+
+    def run_all_tests(self):
+        """Run all tests in sequence"""
+        print("\n=== JIRA API Connection Diagnostic Tool ===")
+        
+        # Test certificate
+        if not self.test_certificate():
+            print("\n❌ Certificate test failed. Stopping tests.")
+            return
+
+        # Test authentication
+        if not self.test_authentication():
+            print("\n❌ Authentication failed. Stopping tests.")
+            return
+
+        # Test proxy settings
+        self.test_proxy_settings()
+
+        # Test API endpoints
+        self.test_api_endpoints()
+
+def main():
+    print("JIRA API Connection Tester")
+    print("=========================")
+    
+    # Get configuration
+    url = input("\nEnter JIRA URL (e.g., your-domain.atlassian.net): ").strip()
+    email = input("Enter your email: ").strip()
+    api_token = input("Enter your API token: ").strip()
+    cert_path = input("Enter path to certificate chain file: ").strip()
+    
+    # Create tester instance
+    tester = JiraAPITester(url, email, api_token, cert_path)
+    
+    # Run tests
+    tester.run_all_tests()
+    
+    print("\nComplete test log available in 'jira_api_test.log'")
+    input("\nPress Enter to exit...")
+
+if __name__ == "__main__":
+    main()
