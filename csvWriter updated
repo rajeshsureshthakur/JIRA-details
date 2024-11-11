@@ -1,0 +1,62 @@
+import csv
+
+def write_csv(self, filename, data):
+    if not data:
+        return
+
+    with open(filename, 'w', newline='', encoding='utf-8') as f:
+        if data:
+            # Get headers from first row
+            headers = list(data[0].keys())
+            
+            # Create CSV writer
+            writer = csv.DictWriter(f, fieldnames=headers, quoting=csv.QUOTE_ALL)
+            
+            # Write headers and data
+            writer.writeheader()
+            writer.writerows(data)
+
+
+
+def save_issues_to_csv(self, data):
+    if 'issues' not in data:
+        return
+
+    # Ensure data directory exists
+    os.makedirs('data', exist_ok=True)
+
+    # Process issues and save to appropriate CSV files
+    user_issues = []
+    assigned_issues = []
+
+    for issue in data['issues']:
+        fields = issue['fields']
+        issue_data = {
+            'Key': issue['key'],
+            'Summary': fields['summary'],
+            'Status': fields['status']['name'],
+            'Priority': fields['priority']['name'],
+            'Created': fields['created'],
+            'DueDate': fields.get('duedate', ''),
+            'Reporter': fields['reporter']['displayName'],
+            'Assignee': fields.get('assignee', {}).get('displayName', '')
+        }
+
+        # Check if issue is reported by current user
+        if fields['reporter']['emailAddress'] == JIRA_CONFIG['email']:
+            user_issues.append(issue_data)
+        
+        # Check if issue is assigned to current user
+        if fields.get('assignee', {}).get('emailAddress') == JIRA_CONFIG['email']:
+            assigned_issues.append(issue_data)
+
+    # Save to CSV files using csv module
+    self.write_csv('data/user_issues.csv', user_issues)
+    self.write_csv('data/assigned_issues.csv', assigned_issues)
+    
+    # Update metadata
+    metadata = [{
+        'LastUpdated': datetime.now().isoformat(),
+        'RecordCount': str(len(user_issues) + len(assigned_issues))
+    }]
+    self.write_csv('data/metadata.csv', metadata)
