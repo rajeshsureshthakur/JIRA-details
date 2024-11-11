@@ -1,0 +1,39 @@
+# jira_proxy_server.py
+import sys
+import os
+
+# Run dependency checks first
+print("Checking dependencies...")
+try:
+    from dependency_setup import check_and_add_paths, verify_imports
+    
+    anaconda_path = check_and_add_paths()
+    missing_modules = verify_imports()
+    
+    if missing_modules:
+        raise ImportError(f"Missing required modules: {', '.join(missing_modules)}")
+        
+except Exception as e:
+    print(f"Error setting up dependencies: {str(e)}")
+    input("Press Enter to exit...")
+    sys.exit(1)
+
+# Now import required modules
+try:
+    from http.server import HTTPServer, SimpleHTTPRequestHandler
+    from urllib.parse import parse_qs, urlparse
+    import json
+    import requests
+    import base64
+    from datetime import datetime
+    import csv
+except ImportError as e:
+    print(f"Error importing required modules: {str(e)}")
+    print("Current sys.path:")
+    for path in sys.path:
+        print(f"  - {path}")
+    input("Press Enter to exit...")
+    sys.exit(1)
+
+# Rest of your original JIRA proxy server code here...
+# (Keep the JiraProxyHandler class and other code the same)
