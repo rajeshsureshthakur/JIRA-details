@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIRA Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 1000px;
+            border-radius: 8px;
+            position: relative;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 10px;
+            font-size: 28px;
+            cursor: pointer;
+        }
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 4px;
+            color: white;
+            z-index: 3000;
+            display: none;
+        }
+        .success { background-color: #10B981; }
+        .error { background-color: #EF4444; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Loading Spinner -->
+    <div id="loading" class="loading">
+        <div class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+            <div class="bg-white p-4 rounded-lg shadow-lg flex items-center space-x-3">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+                <span>Loading...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification"></div>
+
+    <div class="container mx-auto px-4 py-8">
+        <!-- Main Header -->
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-indigo-600 mb-2">JIRA Dashboard</h1>
+            <p class="text-gray-600 mb-2">Track and manage your JIRA issues efficiently</p>
+            <p id="lastUpdated" class="text-sm text-gray-500">Last Updated: Loading...</p>
+            <button onclick="refreshData()" class="mt-4 bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg">
+                Refresh Data
+            </button>
+        </div>
+
+        <!-- Statistics Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <!-- Add your statistics cards here -->
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="space-y-4">
+            <button id="showUserIssuesBtn" class="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition duration-300">
+                View My Issues
+            </button>
+            <button id="showAssignedIssuesBtn" class="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition duration-300">
+                View Assigned Issues
+            </button>
+        </div>
+    </div>
+
+    <!-- Add your modal HTML here -->
+
+    <script>
+        // JIRA API Configuration
+        const JIRA_API = {
+            baseUrl: 'http://localhost:8000/api/jira',
+            
+            async searchIssues(jql) {
+                try {
+                    console.log('Searching with JQL:', jql);
+                    showLoading();
+                    
+                    const response = await fetch(
+                        `${this.baseUrl}/search?jql=${encodeURIComponent(jql)}`,
+                        {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json'
+                            }
+                        }
+                    );
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('API Error:', response.status, errorText);
+                        throw new Error(`API request failed: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log('API Response:', data);
+                    return data;
+                } catch (error) {
+                    console.error('Error fetching issues:', error);
+                    showNotification('Error fetching issues', true);
+                    throw error;
+                } finally {
+                    hideLoading();
+                }
+            },
+
+            async getUserIssues() {
+                return this.searchIssues('reporter = currentUser() ORDER BY created DESC');
+            },
+
+            async getAssignedIssues() {
+                return this.searchIssues('assignee = currentUser() ORDER BY updated DESC');
+            }
+        };
+
+        // UI Helper Functions
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showNotification(message, isError = false) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${isError ? 'error' : 'success'}`;
+            notification.style.display = 'block';
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+
+        // Add your other JavaScript functions here
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                await refreshData();
+            } catch (error) {
+                console.error('Error initializing dashboard:', error);
+                showNotification('Error loading dashboard', true);
+            }
+        });
+
+        // Refresh data
+        async function refreshData() {
+            try {
+                showLoading();
+                const [userIssues, assignedIssues] = await Promise.all([
+                    JIRA_API.getUserIssues(),
+                    JIRA_API.getAssignedIssues()
+                ]);
+                
+                // Update UI with the data
+                updateDashboard(userIssues, assignedIssues);
+                showNotification('Dashboard updated successfully');
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                showNotification('Error refreshing dashboard', true);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Add other necessary functions for your dashboard
+    </script>
+</body>
+</html>
