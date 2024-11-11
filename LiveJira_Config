@@ -1,0 +1,63 @@
+# config.py
+JIRA_CONFIG = {
+    'base_url': 'https://your-domain.atlassian.net',
+    'email': 'your-email@domain.com',
+    'api_token': 'your-api-token'
+}
+
+@echo off
+echo Installing required packages...
+pip install requests
+echo Starting JIRA proxy server...
+python jira_proxy_server.py
+pause
+
+// Replace your existing JIRA API configuration with this:
+const JIRA_API = {
+    baseUrl: 'http://localhost:8000/api/jira',
+    
+    async searchIssues(jql) {
+        try {
+            const response = await fetch(`${this.baseUrl}/search?jql=${encodeURIComponent(jql)}`);
+            if (!response.ok) throw new Error('API request failed');
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching issues:', error);
+            throw error;
+        }
+    },
+
+    async getUserIssues() {
+        return this.searchIssues('reporter = currentUser() ORDER BY created DESC');
+    },
+
+    async getAssignedIssues() {
+        return this.searchIssues('assignee = currentUser() ORDER BY updated DESC');
+    },
+
+    async refreshDashboard() {
+        try {
+            showLoading();
+            const [userIssues, assignedIssues] = await Promise.all([
+                this.getUserIssues(),
+                this.getAssignedIssues()
+            ]);
+            
+            // Data will be automatically saved to CSVs by the proxy server
+            // Just need to refresh the dashboard
+            await loadData();
+            
+            showNotification('Dashboard refreshed successfully');
+        } catch (error) {
+            console.error('Error refreshing dashboard:', error);
+            showNotification('Error refreshing dashboard', true);
+        } finally {
+            hideLoading();
+        }
+    }
+};
+
+// Add this to your refresh function
+async function refreshData() {
+    await JIRA_API.refreshDashboard();
+}
