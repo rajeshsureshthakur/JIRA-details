@@ -1,0 +1,198 @@
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.*;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Base64;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+public class JiraDataFetcher {
+    private final String jiraUrl;
+    private final String auth;
+    private static final String OUTPUT_DIR = "jira_dashboard/data/";
+
+    public JiraDataFetcher(String jiraUrl, String email, String apiToken) {
+        this.jiraUrl = jiraUrl;
+        this.auth = Base64.getEncoder().encodeToString(
+            (email + ":" + apiToken).getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    private JSONObject makeRequest(String endpoint, String method) throws IOException {
+        URL url = new URL(jiraUrl + endpoint);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod(method);
+        conn.setRequestProperty("Authorization", "Basic " + auth);
+        conn.setRequestProperty("Content-Type", "application/json");
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(conn.getInputStream()))) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            return new JSONObject(response.toString());
+        }
+    }
+
+    public void fetchAndSaveData() {
+        try {
+            // Create directories
+            new File(OUTPUT_DIR).mkdirs();
+
+            // Fetch and save issues
+            fetchUserIssues();
+            fetchAssignedIssues();
+            saveMetadata();
+
+            System.out.println("Data successfully fetched and saved to " + OUTPUT_DIR);
+            
+            // Create index.html in the output directory
+            createIndexFile();
+            
+            // Open the dashboard in default browser
+            openDashboard();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void fetchUserIssues() throws IOException {
+        String jql = "reporter = currentUser() ORDER BY created DESC";
+        JSONObject response = makeRequest("/rest/api/3/search?jql=" + 
+            java.net.URLEncoder.encode(jql, "UTF-8"), "GET");
+        
+        List<String[]> issues = new ArrayList<>();
+        issues.add(new String[]{"Key", "Summary", "Status", "Priority", 
+                               "Created", "DueDate", "Assignee"});
+
+        JSONArray issuesArray = response.getJSONArray("issues");
+        for (int i = 0; i < issuesArray.length(); i++) {
+            JSONObject issue = issuesArray.getJSONObject(i);
+            JSONObject fields = issue.getJSONObject("fields");
+            
+            issues.add(new String[]{
+                issue.getString("key"),
+                fields.getString("summary"),
+                fields.getJSONObject("status").getString("name"),
+                fields.getJSONObject("priority").getString("name"),
+                fields.getString("created"),
+                fields.optString("duedate", ""),
+                fields.has("assignee") ? fields.getJSONObject("assignee")
+                    .getString("displayName") : ""
+            });
+        }
+
+        writeCSV("user_issues.csv", issues);
+    }
+
+    private void fetchAssignedIssues() throws IOException {
+        String jql = "assignee = currentUser() ORDER BY updated DESC";
+        JSONObject response = makeRequest("/rest/api/3/search?jql=" + 
+            java.net.URLEncoder.encode(jql, "UTF-8"), "GET");
+        
+        List<String[]> issues = new ArrayList<>();
+        issues.add(new String[]{"Key", "Summary", "Status", "Priority", 
+                               "Created", "DueDate", "Reporter"});
+
+        JSONArray issuesArray = response.getJSONArray("issues");
+        for (int i = 0; i < issuesArray.length(); i++) {
+            JSONObject issue = issuesArray.getJSONObject(i);
+            JSONObject fields = issue.getJSONObject("fields");
+            
+            issues.add(new String[]{
+                issue.getString("key"),
+                fields.getString("summary"),
+                fields.getJSONObject("status").getString("name"),
+                fields.getJSONObject("priority").getString("name"),
+                fields.getString("created"),
+                fields.optString("duedate", ""),
+                fields.getJSONObject("reporter").getString("displayName")
+            });
+        }
+
+        writeCSV("assigned_issues.csv", issues);
+    }
+
+    private void writeCSV(String filename, List<String[]> data) throws IOException {
+        File file = new File(OUTPUT_DIR + filename);
+        try (PrintWriter pw = new PrintWriter(file)) {
+            data.forEach(row -> 
+                pw.println(String.join(",", Arrays.stream(row)
+                    .map(this::escapeCsvField)
+                    .toArray(String[]::new)))
+            );
+        }
+    }
+
+    private String escapeCsvField(String field) {
+        if (field == null) return "\"\"";
+        return "\"" + field.replace("\"", "\"\"") + "\"";
+    }
+
+    private void saveMetadata() throws IOException {
+        List<String[]> metadata = new ArrayList<>();
+        metadata.add(new String[]{"LastUpdated", "RecordCount"});
+        metadata.add(new String[]{
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            "true"
+        });
+        writeCSV("metadata.csv", metadata);
+    }
+
+    private void createIndexFile() throws IOException {
+        // Copy the HTML content to the output directory
+        try (PrintWriter writer = new PrintWriter(new File(OUTPUT_DIR + "index.html"))) {
+            writer.println(getHtmlContent());
+        }
+    }
+
+    private void openDashboard() throws IOException {
+        String url = new File(OUTPUT_DIR + "index.html").toURI().toString();
+        
+        // Open the default browser
+        try {
+            java.awt.Desktop.getDesktop().browse(new File(OUTPUT_DIR + "index.html").toURI());
+        } catch (IOException e) {
+            System.out.println("Please open the following file in your browser: " + 
+                             OUTPUT_DIR + "index.html");
+        }
+    }
+
+    private String getHtmlContent() {
+        // Return the complete HTML content for the dashboard
+        return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <title>JIRA Dashboard</title>
+                <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+            </head>
+            <body>
+                <!-- Dashboard HTML content here -->
+            </body>
+            </html>
+        """;
+    }
+
+    public static void main(String[] args) {
+        String jiraUrl = "https://your-domain.atlassian.net";
+        String email = "your-email@domain.com";
+        String apiToken = "your-api-token";
+
+        if (args.length >= 3) {
+            jiraUrl = args[0];
+            email = args[1];
+            apiToken = args[2];
+        }
+
+        JiraDataFetcher fetcher = new JiraDataFetcher(jiraUrl, email, apiToken);
+        fetcher.fetchAndSaveData();
+    }
+}
