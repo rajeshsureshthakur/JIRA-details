@@ -1,0 +1,77 @@
+# dependency_setup.py
+import sys
+import os
+import importlib.util
+
+def check_and_add_paths():
+    # Get username for path construction
+    username = os.getenv('USERNAME')
+    
+    # Common Anaconda paths
+    potential_paths = [
+        rf"C:\Users\{username}\Anaconda3",
+        rf"C:\Users\{username}\AppData\Local\Continuum\anaconda3",
+        r"C:\ProgramData\Anaconda3",
+        os.environ.get('CONDA_PREFIX', '')
+    ]
+    
+    # Find valid Anaconda path
+    anaconda_path = None
+    for path in potential_paths:
+        if os.path.exists(path):
+            anaconda_path = path
+            break
+    
+    if not anaconda_path:
+        raise Exception("Could not find Anaconda installation!")
+
+    # Add necessary paths
+    paths_to_add = [
+        os.path.join(anaconda_path, 'Lib'),
+        os.path.join(anaconda_path, 'Lib', 'site-packages'),
+        os.path.join(anaconda_path, 'Lib', 'site-packages', 'urllib3'),
+        os.path.join(anaconda_path, 'Lib', 'site-packages', 'requests')
+    ]
+
+    for path in paths_to_add:
+        if os.path.exists(path) and path not in sys.path:
+            sys.path.insert(0, path)
+
+    return anaconda_path
+
+def verify_imports():
+    required_modules = [
+        'urllib3',
+        'requests',
+        'chardet',
+        'idna',
+        'certifi'
+    ]
+    
+    missing_modules = []
+    for module in required_modules:
+        if importlib.util.find_spec(module) is None:
+            missing_modules.append(module)
+    
+    return missing_modules
+
+if __name__ == "__main__":
+    try:
+        print("Checking Anaconda paths...")
+        anaconda_path = check_and_add_paths()
+        print(f"Found Anaconda at: {anaconda_path}")
+        
+        print("\nVerifying system paths:")
+        for path in sys.path:
+            print(f"  - {path}")
+            
+        print("\nChecking required modules...")
+        missing = verify_imports()
+        if missing:
+            print(f"Warning: Missing modules: {', '.join(missing)}")
+        else:
+            print("All required modules found!")
+            
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        input("Press Enter to exit...")
