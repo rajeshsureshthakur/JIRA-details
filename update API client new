@@ -1,0 +1,48 @@
+// JIRA API Client with updated URL structure
+const JIRA_API = {
+    baseUrl: 'http://localhost:8000/api/jira',
+    
+    async searchIssues(jql) {
+        try {
+            console.log('Searching issues with JQL:', jql);
+            const response = await fetch(
+                `${this.baseUrl}/search?jql=${encodeURIComponent(jql)}`,
+                {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+            
+            if (!response.ok) {
+                console.error('API Error:', response.status);
+                const errorText = await response.text();
+                console.error('Error details:', errorText);
+                throw new Error(`API request failed: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            console.log('API Response:', data);
+            return data;
+        } catch (error) {
+            console.error('Error fetching issues:', error);
+            throw error;
+        }
+    },
+
+    async getUserIssues() {
+        return this.searchIssues('reporter = currentUser() ORDER BY created DESC');
+    },
+
+    async getAssignedIssues() {
+        return this.searchIssues('assignee = currentUser() ORDER BY updated DESC');
+    },
+
+    // Helper function to format JIRA dates
+    formatDate(dateString) {
+        if (!dateString) return 'N/A';
+        return new Date(dateString).toLocaleString();
+    }
+};
