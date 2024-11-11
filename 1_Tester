@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIRA API Tester</title>
+    <style>
+        body { 
+            padding: 20px; 
+            font-family: Arial, sans-serif; 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        .endpoint { 
+            margin-bottom: 20px; 
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        pre { 
+            background: #f5f5f5; 
+            padding: 10px; 
+            overflow: auto;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        button { 
+            padding: 8px 16px; 
+            background: #0052cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0043a7;
+        }
+        .error {
+            color: red;
+            background: #fff0f0;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            color: green;
+            background: #f0fff0;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        #status {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>JIRA API Tester</h1>
+    <div id="status"></div>
+    <div class="endpoint">
+        <button onclick="testEndpoint('/api/jira')">Test Root Endpoint</button>
+        <button onclick="testEndpoint('/api/jira/myself')">Test Myself</button>
+        <button onclick="testEndpoint('/api/jira/search?jql=assignee=currentUser()')">Test Search</button>
+        <button onclick="testEndpoint('/api/jira/project')">Test Projects</button>
+    </div>
+    <h2>Response:</h2>
+    <pre id="response">Click a button to test an endpoint...</pre>
+
+    <script>
+        async function testEndpoint(endpoint) {
+            const statusDiv = document.getElementById('status');
+            const responseDiv = document.getElementById('response');
+            
+            try {
+                statusDiv.className = '';
+                statusDiv.textContent = 'Loading...';
+                responseDiv.textContent = 'Making request...';
+                
+                console.log('Making request to:', `http://localhost:8000${endpoint}`);
+                
+                const response = await fetch(`http://localhost:8000${endpoint}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                const data = await response.json();
+                
+                statusDiv.className = 'success';
+                statusDiv.textContent = `Success! Status: ${response.status}`;
+                responseDiv.textContent = JSON.stringify(data, null, 2);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                statusDiv.className = 'error';
+                statusDiv.textContent = `Error: ${error.message}`;
+                responseDiv.textContent = 'Failed to make request. Check console for details.';
+            }
+        }
+
+        // Test server connection on load
+        window.onload = async function() {
+            try {
+                const response = await fetch('http://localhost:8000/api/jira');
+                if (response.ok) {
+                    document.getElementById('status').className = 'success';
+                    document.getElementById('status').textContent = 'Server is running!';
+                }
+            } catch (error) {
+                document.getElementById('status').className = 'error';
+                document.getElementById('status').textContent = 'Server not reachable. Is it running?';
+            }
+        };
+    </script>
+</body>
+</html>
