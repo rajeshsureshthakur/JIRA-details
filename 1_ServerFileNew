@@ -1,0 +1,245 @@
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
+import json
+import requests
+import logging
+import os
+from datetime import datetime
+import traceback
+import urllib3
+import csv
+
+# Disable SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Set up logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('jira_server.log'),
+        logging.StreamHandler()
+    ]
+)
+
+# JIRA Configuration
+JIRA_CONFIG = {
+    'base_url': 'https://your-domain.atlassian.net',  # Replace with your JIRA URL
+    'api_key': 'your-api-key',                        # Replace with your API key
+    'email': 'your-email@domain.com',                 # Replace with your email
+    'verify_ssl': False                               # Set to certificate path if needed
+}
+
+class JiraProxyHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        self.jira_headers = {
+            'Authorization': f'Bearer {JIRA_CONFIG["api_key"]}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+        super().__init__(*args, **kwargs)
+
+    def do_OPTIONS(self):
+        self.send_cors_headers()
+        self.send_response(200)
+        self.end_headers()
+
+    def do_GET(self):
+        try:
+            logging.info(f"Received GET request for path: {self.path}")
+            
+            # Serve static files
+            if not self.path.startswith('/api/'):
+                return super().do_GET()
+            
+            # Handle API requests
+            parsed_path = urlparse(self.path)
+            if parsed_path.path.startswith('/api/jira/'):
+                self.handle_jira_request(parsed_path)
+            else:
+                self.send_error(404, "API endpoint not found")
+
+        except Exception as e:
+            logging.error(f"Error in GET: {str(e)}\n{traceback.format_exc()}")
+            self.send_error(500, f"Internal server error: {str(e)}")
+
+    def handle_jira_request(self, parsed_path):
+        try:
+            # Remove /api/jira prefix
+            jira_path = parsed_path.path.replace('/api/jira/', '')
+            query_params = parse_qs(parsed_path.query)
+            
+            logging.info(f"Processing JIRA request for: {jira_path}")
+            logging.debug(f"Query params: {query_params}")
+
+            # Construct JIRA URL
+            jira_url = f"{JIRA_CONFIG['base_url']}/jira/rest/api/2/{jira_path}"
+            logging.info(f"Making request to JIRA: {jira_url}")
+
+            # Make request to JIRA
+            if query_params:
+                formatted_params = {k: v[0] for k, v in query_params.items()}
+                response = requests.get(
+                    jira_url, 
+                    headers=self.jira_headers,
+                    params=formatted_params,
+                    verify=JIRA_CONFIG['verify_ssl']
+                )
+            else:
+                response = requests.get(
+                    jira_url, 
+                    headers=self.jira_headers,
+                    verify=JIRA_CONFIG['verify_ssl']
+                )
+
+            logging.info(f"JIRA response status: {response.status_code}")
+            if not response.ok:
+                logging.error(f"JIRA error response: {response.text}")
+
+            # Send response back to client
+            self.send_cors_headers()
+            self.send_response(response.status_code)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(response.content)
+
+            # Save to CSV if it's a search request
+            if jira_path == 'search':
+                self.save_issues_to_csv(response.json())
+
+        except Exception as e:
+            logging.error(f"Error handling JIRA request: {str(e)}\n{traceback.format_exc()}")
+            self.send_error(500, f"Internal server error: {str(e)}")
+
+    def send_cors_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+
+    def save_issues_to_csv(self, data):
+        """Save JIRA issues to CSV files"""
+        if 'issues' not in data:
+            return
+
+        try:
+            os.makedirs('data', exist_ok=True)
+            
+            # Process issues
+            user_issues = []
+            assigned_issues = []
+
+            for issue in data['issues']:
+                issue_data = {
+                    'Key': issue['key'],
+                    'Summary': issue['fields']['summary'],
+                    'Status': issue['fields']['status']['name'],
+                    'Priority': issue['fields']['priority']['name'],
+                    'Created': issue['fields']['created'],
+                    'DueDate': issue['fields'].get('duedate', ''),
+                    'Reporter': issue['fields']['reporter']['displayName'],
+                    'Assignee': issue['fields'].get('assignee', {}).get('displayName', '')
+                }
+
+                if issue['fields']['reporter']['emailAddress'] == JIRA_CONFIG.get('email'):
+                    user_issues.append(issue_data)
+                if issue['fields'].get('assignee', {}).get('emailAddress') == JIRA_CONFIG.get('email'):
+                    assigned_issues.append(issue_data)
+
+            # Write to CSV files
+            self.write_csv('data/user_issues.csv', user_issues)
+            self.write_csv('data/assigned_issues.csv', assigned_issues)
+            
+            # Update metadata
+            metadata = [{
+                'LastUpdated': datetime.now().isoformat(),
+                'RecordCount': str(len(user_issues) + len(assigned_issues))
+            }]
+            self.write_csv('data/metadata.csv', metadata)
+
+            logging.info(f"Saved {len(user_issues)} user issues and {len(assigned_issues)} assigned issues to CSV")
+
+        except Exception as e:
+            logging.error(f"Error saving to CSV: {str(e)}\n{traceback.format_exc()}")
+
+    def write_csv(self, filename, data):
+        """Write data to CSV file"""
+        if not data:
+            return
+
+        try:
+            logging.info(f"Writing CSV file: {filename}")
+            
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                if data:
+                    # Get headers from first row
+                    headers = list(data[0].keys())
+                    
+                    # Create CSV writer
+                    writer = csv.DictWriter(f, fieldnames=headers, quoting=csv.QUOTE_ALL)
+                    
+                    # Write headers and data
+                    writer.writeheader()
+                    writer.writerows(data)
+                    
+            logging.info(f"Successfully wrote {len(data)} rows to {filename}")
+
+        except Exception as e:
+            logging.error(f"Error writing CSV {filename}: {str(e)}\n{traceback.format_exc()}")
+
+def test_jira_connection():
+    """Test JIRA connection before starting server"""
+    try:
+        headers = {
+            'Authorization': f'Bearer {JIRA_CONFIG["api_key"]}',
+            'Accept': 'application/json'
+        }
+        
+        test_url = f"{JIRA_CONFIG['base_url']}/jira/rest/api/2/myself"
+        logging.info(f"Testing connection to: {test_url}")
+        
+        response = requests.get(
+            test_url,
+            headers=headers,
+            verify=JIRA_CONFIG['verify_ssl']
+        )
+        
+        if response.ok:
+            user_data = response.json()
+            logging.info(f"Successfully connected as: {user_data.get('displayName', 'Unknown')}")
+            print(f"Connected to JIRA as: {user_data.get('displayName', 'Unknown')}")
+            return True
+        else:
+            logging.error(f"Failed to connect: {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"Connection test error: {str(e)}")
+        return False
+
+def run_server(port=8000):
+    server_address = ('', port)
+    httpd = HTTPServer(server_address, JiraProxyHandler)
+    print(f'Starting server on port {port}...')
+    print(f'Access the dashboard at http://localhost:{port}')
+    httpd.serve_forever()
+
+if __name__ == '__main__':
+    try:
+        print("\nJIRA Server Starting...")
+        print(f"Base URL: {JIRA_CONFIG['base_url']}")
+        print("Testing connection...")
+        
+        if test_jira_connection():
+            print("\nConnection successful! Starting server...")
+            run_server()
+        else:
+            print("\nFailed to connect to JIRA. Check configuration.")
+            print("See jira_server.log for details")
+    except KeyboardInterrupt:
+        print("\nServer stopped by user")
+    except Exception as e:
+        logging.error(f"Server error: {str(e)}\n{traceback.format_exc()}")
+        print("\nError occurred. Check jira_server.log for details")
+    
+    input("\nPress Enter to exit...")
